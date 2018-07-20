@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="UTF-8">
 	<title></title>
 <style>
 	body {
@@ -277,7 +278,7 @@ function renderTraces(traces) {
 			}
 			const item = ce('li');
 			const recipientName = recipient in committees ? committees[recipient][C_NAME] : candidates[recipient][CAND_NAME];
-			item.appendChild(ctn(committees[donor][C_NAME] + ' -> ' + recipientName));
+			item.appendChild(ctn(committees[donor][C_NAME] + ' → ' + recipientName));
 			var donations = ce('ul');
 			trace[i].forEach((tx) => {
 				const a = getDonationLink(tx);
