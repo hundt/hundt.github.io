@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+<style>
+	body {
+		font-family: sans-serif;
+	}
+	a {
+		text-decoration: none;
+		color: #5a;
+	}
+	a:hover {
+		text-decoration: underline;
+	}
+	ol.trace {
+		border: 2px solid #aaa;
+		padding-bottom: 8px;
+		padding-top: 8px;
+	}
+	select.recipientType {
+		display: block;
+		margin-bottom: 5px;
+	}
+	h3 {
+		margin-bottom: 10px;
+		margin-top: 5px;
+	}
+</style>
+<script>
+let transfers;
+let committees;
+let candidates;
+
+const T_ID = 0;
+const T_IMAGE_NO = 1;
+const T_TYPE = 2;
+const T_DATE = 3;
+const T_AMOUNT = 4;
+const T_OTHER_ID = 5;
+
+const C_NAME = 0;
+const C_TYPE = 8;
+
+const CAND_NAME = 0;
+
+const FORWARD_TYPES = {'15J': true, '18G': true, '18J': true, '18K': true};
+const REVERSE_TYPES = {'24A': true, '24C': true, '24E': true, '24G': true, '24K': true};
+
+const PARTY_TYPES = {'X': true, 'Y': true, 'Z': true};
+
+const COMMITTEE_TYPES = {
+	D: 'Delegate Committee',
+	H: 'House Committee',
+	S: 'Senate Committee',
+	P: 'Presidential Committee',
+	U: 'Single-candidate Independent Committee'
+}
+
+const pairs = [];
+
+async function loadCommittees() {
+	console.log('loading JSON', new Date().getTime() / 1000.0);
+	committees = await fetch("committees.json").then((r) => r.json());
+	console.log('processed committees', new Date().getTime() / 1000.0);
+}
+
+async function loadCandidates() {
+	console.log('loading JSON', new Date().getTime() / 1000.0);
+	candidates = await fetch("candidates.json").then((r) => r.json());
+	console.log('processed candidates', new Date().getTime() / 1000.0);
+}
+
+async function loadTransfers() {
+	console.log('loading JSON', new Date().getTime() / 1000.0);
+	transfers = await fetch("transfers.json").then((r) => r.json());
+	transfers = transfers.filter((t) => (t[T_ID] in committees) && (t[T_OTHER_ID] in committees || t[T_OTHER_ID] in candidates));
+	console.log('processed transfers', new Date().getTime() / 1000.0);
+}
+
+function follow(start) {
+	var first = Object.create(null);
+	first[start] = {};
+	const paths = [first];
+	var prev = null;
+	var curr = paths[0];
+	while (prev === null || Object.keys(prev).length < Object.keys(curr).length) {
+		prev = curr;
+		curr = {};
+		transfers.forEach((t) => {
+			const typ = t[T_TYPE];
+			let recipient, donor;
+			if (typ in FORWARD_TYPES) {
+				recipient = t[T_ID];
+				donor = t[T_OTHER_ID];
+			} else if (typ in REVERSE_TYPES) {
+				recipient = t[T_OTHER_ID];
+				donor = t[T_ID];
+			} else {
+				return;
+			}
+			if (recipient in committees && committees[recipient][C_TYPE] in PARTY_TYPES) {
+				return;
+			}
+			if (!(donor in prev)) {
+				return;
+			}
+			if (!(recipient in curr)) {
+				curr[recipient] = Object.create(null);
+			}
+			if (!(donor in curr[recipient])) {
+				curr[recipient][donor] = [];
+			}
+			curr[recipient][donor].push(t);
+		});
+		paths.push(curr);
+	}
+	return paths;
+}
+
+function trace(source, recipient, paths) {
+	if (recipient == source) {
+		return [null];
+	}
+	const traces = [];
+	for (let i = 0; i < paths.length; i++) {
+		if (recipient in paths[i]) {
+			const donations = paths[i][recipient];
+			for (let donor in donations) {
+				const t = donations[donor];
+				const tails = trace(source, donor, paths);
+				tails.forEach((tail) => {
+					traces.push([t].concat(tail));
+				})
+			};
+			return traces;
+		}
+	}
+}
+
+function followSource() {
+	const sourceID = document.getElementById('sourceID').value;
+	if (!(sourceID in committees)) {
+		alert('Unknown committee ID: ' + sourceID);
+		return;
+	}
+	const container = document.getElementById('donors');
+	while (container.firstChild) {
+		container.removeChild(container.firstChild);
+	}
+	container.appendChild(ctn('tracing...'));
+	setTimeout(() => {
+		container.removeChild(container.firstChild);
+		const paths = follow(sourceID);
+		if (paths.length <= 1) {
+			alert('No donations tracked from ' + committees[sourceID][C_NAME]);
+			return;
+		}
+		const h3 = ce('h3');
+		h3.appendChild(ctn('Donations from ' + committees[sourceID][C_NAME] + ' to:'));
+		container.appendChild(h3);
+		seen = Object.create(null);
+		groups = Object.create(null);
+		paths.forEach((p) => {
+			for (recipient in p) {
+				if (recipient in seen) continue;
+				seen[recipient] = true;
+
+				let groupName = 'Other';
+				if (recipient in candidates) {
+					groupName = 'Direct to candidate';
+				} else {
+					recipientType = committees[recipient][C_TYPE];
+					if (recipientType in COMMITTEE_TYPES) {
+						groupName = COMMITTEE_TYPES[recipientType];
+					}
+				}
+
+				if (!(groupName in groups)) {
+					groups[groupName] = [];
+				}
+
+				groups[groupName].push(recipient);
+			}
+		});
+		const selects = [];
+
+		const groupNames = [
+			COMMITTEE_TYPES['H'],
+			COMMITTEE_TYPES['S'],
+			COMMITTEE_TYPES['P'],
+			COMMITTEE_TYPES['U'],
+			COMMITTEE_TYPES['D'],
+			'Direct to candidate',
+			'Other'
+		];
+		groupNames.forEach((groupName) => {
+			const group = groups[groupName];
+			if (!group) return;
+			const select = ce('select');
+			select.className = 'recipientType';
+			selects.push(select);
+			const option = ce('option');
+			option.value = '';
+			option.appendChild(ctn(groupName));
+			select.appendChild(option);
+			group.sort((x, y) => {
+				if (x in candidates) {
+					return candidates[x][CAND_NAME].localeCompare(candidates[y][CAND_NAME]);
+				} else {
+					return committees[x][C_NAME].localeCompare(committees[y][C_NAME]);
+				}
+			});
+			group.forEach((recipient) => {
+				const option = ce('option');
+				option.value = recipient;
+				if (recipient in candidates) {
+					option.appendChild(ctn(candidates[recipient][CAND_NAME]));
+				} else {
+					option.appendChild(ctn(committees[recipient][C_NAME]));
+				}
+				select.appendChild(option);
+			});
+			select.addEventListener('change', () => {
+				if (select.value) {
+					selects.forEach((s) => {
+						if (s != select) s.selectedIndex = 0;
+					});
+					renderTraces(trace(sourceID, select.value, paths));
+				}
+			});
+			container.appendChild(select);
+		});
+	}, 0);
+}
+
+function ce(t) {
+	return document.createElement(t);
+}
+function ctn(t) {
+	return document.createTextNode(t);
+}
+
+const MONTHS = [
+	'N/A',
+	'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
+function getDonationLink(tx) {
+	const a = ce('a');
+	a.href = 'http://docquery.fec.gov/cgi-bin/fecimg/?' + tx[T_IMAGE_NO];
+	a.target = '_blank';
+
+	const dateStr = tx[T_DATE];
+	const month = +dateStr.substring(0, 2) - 1;
+	const day = +dateStr.substring(2, 4);
+	const year = dateStr.substring(4);
+	const date = new Date(year, month, day);
+	const description = '$' + (+tx[T_AMOUNT]).toLocaleString() + ' reported by ' + committees[tx[T_ID]][C_NAME] + ' on ' + date.toLocaleDateString();
+	a.appendChild(ctn(description));
+	return a;
+}
+
+function renderTraces(traces) {
+	const target = document.getElementById('trace');
+	while (target.firstChild) {
+		target.removeChild(target.firstChild);
+	}
+	traces.forEach((trace) => {
+		const list = ce('ol');
+		list.className = 'trace';
+		for (var i = trace.length - 2; i >= 0; i--) {
+			const tx = trace[i][0];
+			const typ = tx[T_TYPE];
+			let recipient, donor;
+			if (typ in FORWARD_TYPES) {
+				recipient = tx[T_ID];
+				donor = tx[T_OTHER_ID];
+			} else if (typ in REVERSE_TYPES) {
+				recipient = tx[T_OTHER_ID];
+				donor = tx[T_ID];
+			}
+			const item = ce('li');
+			const recipientName = recipient in committees ? committees[recipient][C_NAME] : candidates[recipient][CAND_NAME];
+			item.appendChild(ctn(committees[donor][C_NAME] + ' -> ' + recipientName));
+			var donations = ce('ul');
+			trace[i].forEach((tx) => {
+				const a = getDonationLink(tx);
+				const li = ce('li');
+				li.appendChild(a);
+				donations.appendChild(li);
+			});
+			item.appendChild(donations);
+			list.appendChild(item);
+		}
+		target.appendChild(list);
+	});
+}
+
+window.addEventListener('load', async function() {
+	await loadCommittees();
+	await loadCandidates();
+	await loadTransfers();
+	document.getElementById('loading').style.display = 'none';
+	document.getElementById('loaded').style.display = '';
+});
+
+</script>
+</head>
+<body>
+<div id="loading">Loading data...</div>
+<div id="loaded" style="display:none">
+	<form onsubmit="followSource(); return false;">
+	Trace donations from: <input id="sourceID" value="C00428623"> <button>Go</button>
+	</form>
+	<hr>
+	<div id="donors">
+
+	</div>
+	<div id="trace">
+
+	</div>
+</div>
+</body>
+</html>
