@@ -49,6 +49,7 @@ const FORWARD_TYPES = {'15J': true, '18G': true, '18J': true, '18K': true};
 const REVERSE_TYPES = {'24C': true, '24E': true, '24G': true, '24K': true};
 
 const PARTY_TYPES = {'X': true, 'Y': true, 'Z': true};
+const CANDIDATE_TYPES = {'D': true, 'H': true, 'S': true, 'P': true};
 
 const COMMITTEE_TYPES = {
 	D: 'Delegate Committee',
@@ -85,6 +86,9 @@ function follow(start) {
 	const paths = [first];
 	var prev = null;
 	var curr = paths[0];
+	const ignoreParties = !!document.getElementById('ignoreParties').checked;
+	const ignoreCandidateToCandidate = !!document.getElementById('ignoreCandidateToCandidate').checked;
+	const ignoreFromCandidate = !!document.getElementById('ignoreFromCandidate').checked;
 	while (prev === null || Object.keys(prev).length < Object.keys(curr).length) {
 		prev = curr;
 		curr = {};
@@ -100,7 +104,19 @@ function follow(start) {
 			} else {
 				return;
 			}
-			if (recipient in committees && committees[recipient][C_TYPE] in PARTY_TYPES) {
+			if (ignoreParties && recipient in committees && committees[recipient][C_TYPE] in PARTY_TYPES) {
+				return;
+			}
+			if (ignoreFromCandidate
+				&& donor in committees
+				&& committees[donor][C_TYPE] in CANDIDATE_TYPES) {
+				return;
+			}
+			if (ignoreCandidateToCandidate
+				&& recipient in committees
+				&& donor in committees
+				&& committees[recipient][C_TYPE] in CANDIDATE_TYPES
+				&& committees[donor][C_TYPE] in CANDIDATE_TYPES) {
 				return;
 			}
 			if (!(donor in prev)) {
@@ -309,6 +325,10 @@ window.addEventListener('load', async function() {
 	<form onsubmit="followSource(); return false;">
 	Trace donations from: <input id="sourceID" value="C00428623"> <button>Go</button> <a href="https://classic.fec.gov/finance/disclosure/candcmte_info.shtml" target="_blank" style="text-decoration: underline; display: inline-block; margin-left: 15px">Look up a committee ID</a>
 	</form>
+	Ignore transactions:<br>
+		<label><input id="ignoreParties" type="checkbox" checked> involving a political party</label><br>
+		<label><input id="ignoreCandidateToCandidate" type="checkbox"> from one candidate's committee to another's</label><br>
+		<label><input id="ignoreFromCandidate" type="checkbox"> from a candidate's committee anywhere</label>
 	<hr>
 	<div id="donors">
 
