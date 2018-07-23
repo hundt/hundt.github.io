@@ -27,6 +27,26 @@
 		margin-bottom: 10px;
 		margin-top: 5px;
 	}
+	.suggest-container {
+		position: relative;
+		display: inline-block;
+	}
+	#suggestions {
+		position: absolute;
+		background-color: white;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		top: 100%;
+		border: 1px solid black;
+	}
+	#suggestions li {
+		padding: 2px;
+		cursor: pointer;
+	}
+	#suggestions li:hover {
+		background-color: #acc7de;
+	}
 </style>
 <script>
 let transfers;
@@ -80,6 +100,62 @@ async function loadTransfers() {
 	console.log('processed transfers', new Date().getTime() / 1000.0);
 }
 
+function suggestCommittees(e) {
+	if (e.key == 'ArrowUp' || e.key == 'ArrowDown') {
+		// These may have just been used to navigate auto-complete menu.
+		return;
+	}
+	const sourceInput = document.getElementById('sourceID');
+	const partial = sourceInput.value.toUpperCase();
+	const suggested = Object.create(null);
+	const suggestions = [];
+	const MAX_SUGGESTIONS = 10;
+	for (id in committees) {
+		if (suggestions.length >= MAX_SUGGESTIONS) break;
+		committee = committees[id];
+		if (committee[C_NAME].toUpperCase().startsWith(partial)) {
+			suggestions.push({id: id, name: committee[C_NAME]});
+			suggested[id] = true;
+		}
+	}
+	for (id in committees) {
+		if (suggestions.length >= MAX_SUGGESTIONS) break;
+		if (id in suggested) continue;
+		committee = committees[id];
+		if (committee[C_NAME].toUpperCase().indexOf(partial) != -1) {
+			suggestions.push({id: id, name: committee[C_NAME]});
+		}
+	}
+
+	const ul = document.getElementById('suggestions');
+
+	if (!suggestions.length) {
+		ul.style.display = 'none';
+		return;
+	}
+
+	ul.style.display = '';
+	while (ul.firstChild) {
+		ul.removeChild(ul.firstChild);
+	}
+
+	suggestions.forEach((suggestion) => {
+		const item = ce('li');
+		const pos = suggestion.name.indexOf(partial);
+		item.appendChild(ctn(suggestion.name.substring(0, pos)));
+		const strong = ce('strong');
+		strong.appendChild(ctn(suggestion.name.substring(pos, pos + partial.length)));
+		item.appendChild(strong);
+		item.appendChild(ctn(suggestion.name.substring(pos + partial.length) + ' (' + suggestion.id + ')'));
+		ul.appendChild(item);
+		item.addEventListener('click', () => {
+			ul.style.display = 'none';
+			sourceInput.value = suggestion.id;
+			followSource();
+		});
+	});
+}
+
 function follow(start) {
 	var first = Object.create(null);
 	first[start] = {};
@@ -130,7 +206,9 @@ function follow(start) {
 			}
 			curr[recipient][donor].push(t);
 		});
-		paths.push(curr);
+		if (Object.keys(curr).length) {
+			paths.push(curr);
+		}
 	}
 	return paths;
 }
@@ -164,6 +242,10 @@ function followSource() {
 	const container = document.getElementById('donors');
 	while (container.firstChild) {
 		container.removeChild(container.firstChild);
+	}
+	const traces = document.getElementById('trace');
+	while (traces.firstChild) {
+		traces.removeChild(traces.firstChild);
 	}
 	container.appendChild(ctn('tracing...'));
 	setTimeout(() => {
@@ -315,6 +397,7 @@ window.addEventListener('load', async function() {
 	await loadTransfers();
 	document.getElementById('loading').style.display = 'none';
 	document.getElementById('loaded').style.display = '';
+	document.getElementById('sourceID').addEventListener('keyup', suggestCommittees);
 });
 
 </script>
@@ -323,7 +406,12 @@ window.addEventListener('load', async function() {
 <div id="loading">Loading data...</div>
 <div id="loaded" style="display:none">
 	<form onsubmit="followSource(); return false;">
-	Trace donations from: <input id="sourceID" value="C00428623"> <button>Go</button> <a href="https://classic.fec.gov/finance/disclosure/candcmte_info.shtml" target="_blank" style="text-decoration: underline; display: inline-block; margin-left: 15px">Look up a committee ID</a>
+	Trace donations from:
+		<span class="suggest-container">
+			<ul id="suggestions" style="display:none">
+			</ul>
+			<input id="sourceID" value="C00428623"> <button>Go</button> <a href="https://classic.fec.gov/finance/disclosure/candcmte_info.shtml" target="_blank" style="text-decoration: underline; display: inline-block; margin-left: 15px">Look up a committee</a>
+		</span>
 	</form>
 	Ignore transactions:<br>
 		<label><input id="ignoreParties" type="checkbox" checked> involving a political party</label><br>
